@@ -18,9 +18,7 @@ contract FlashFi {
         _methods[0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D] = bytes4(keccak256("univ2Router(bytes)"));
     }
 
-    /* Dispatch flash loan transaction
-    (notes will be added here)
-    */
+    // Dispatch flash loan backed trade
     function flashTrade (
         address asset, 
         uint256 amount, 
@@ -84,7 +82,6 @@ contract FlashFi {
         // Decrement available balance for ERC20
         _bals[asset] -= amount;
     
-
         // Return true denoting successful execution
         return true;
     }
@@ -105,6 +102,7 @@ contract FlashFi {
                 "decimals()"
             )
         );
+
         // Calculate exponentiated amount in
         uint256 exp_amountIn = amountIn * 10 ** abi.decode(decimals, (uint256));
         
