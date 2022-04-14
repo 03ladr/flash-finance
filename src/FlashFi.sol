@@ -70,8 +70,6 @@ contract FlashFi {
             )
         );
 
-        // this.call(_methods[target_dex]) + params
-
         /* To-do:
             1) Execute trade
             If successful: 
