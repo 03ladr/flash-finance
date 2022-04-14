@@ -11,8 +11,16 @@ contract FlashFi {
 
     // Storage variables
     mapping(address => uint256) private _bals;
+    mapping(address => bytes4) private _methods;
+    
+    // Setting supported dexes
+    constructor() {
+        _methods[0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D] = bytes4(keccak256("univ2Router(bytes)"));
+    }
 
-    // Dispatch flash loan transaction
+    /* Dispatch flash loan transaction
+    (notes will be added here)
+    */
     function flashTrade (
         address asset, 
         uint256 amount, 
@@ -31,9 +39,7 @@ contract FlashFi {
         // Require successful execution
         require(success, "Transaction failed.");
 
-        // Increment available balance for ERC20
-        _bals[asset] += amount;
-
+        // Return true denoting successful execution
         return true;
     }
 
@@ -42,25 +48,36 @@ contract FlashFi {
         address asset,
         uint256 amount,
         uint256 premium,
-        address initiator,
+        // address initiator,
         bytes calldata params
     ) external returns (bool) {
 
+        // Increment available balance for ERC20
+        _bals[asset] += amount;
+        
         // Ensure balance consistency
-        require(IERC20(asset).balanceOf(address(this)) == _bals[asset], "Balance error.");
+        require(IERC20(asset).balanceOf(address(this)) == _bals[asset], "balance error.");
         
         // Store transaction debt
         uint256 debt = amount + premium;
 
-        // Decode parameter data (placeholder)
-        (uint8 decoded, uint8 also_decoded) = abi.decode(params, (uint8, uint8));
+        // Use address-specific method
+        require(address(bytes20(params[12:32])) != address(0), "Unsupported target dex address.");
+        (bool success, ) = address(this).call(
+            abi.encodeWithSelector(
+                _methods[address(bytes20(params[12:32]))], 
+                abi.encode(params, debt)
+            )
+        );
+
+        // this.call(_methods[target_dex]) + params
 
         /* To-do:
             1) Execute trade
             If successful: 
                 2) Decrement _bals by amount
                 3) Reobtain debt 
-                    - Same token, same quantity (right?)
+                    - Same token, same quantity
                 4) Take 1% service fee of debt-deduced profit
             Else:
                 2) Revert transaction
@@ -69,7 +86,43 @@ contract FlashFi {
         // Decrement available balance for ERC20
         _bals[asset] -= amount;
     
-        return true;
-    }  
 
+        // Return true denoting successful execution
+        return true;
+    }
+
+    function univ2Router(
+        bytes calldata params
+    ) external returns (bool) {
+        
+        // Decode execution parameters
+        (bytes memory trade_params, uint256 debt) = abi.decode(params, (bytes, uint256));
+
+        // Decode trade parameters (currently placeholder)
+        (address target_dex, address asset, uint256 amountIn) = abi.decode(trade_params, (address, address, uint256));
+
+        // Obtaining asset decimal count
+        ( , bytes memory decimals) = asset.call(
+            abi.encode(
+                "decimals()"
+            )
+        );
+        // Calculate exponentiated amount in
+        uint256 exp_amountIn = amountIn * 10 ** abi.decode(decimals, (uint256));
+        
+        // Pre-trade requisites
+        require(IERC20(asset).transferFrom(msg.sender, address(this), exp_amountIn), 'transferFrom failed.');
+        require(IERC20(asset).approve(target_dex, exp_amountIn), 'approve failed.');
+    
+        // Trade execution
+        // _univ2.call(
+        //     abi.encodeWithSignature(
+        //         "swapExactTokensForTokens(uint,uint,address[],address,uint)",
+        //         exp_amountIn, exp_amountOutMin, path, to, deadline
+        //     )
+        // );
+
+        // Return true denoting successful execution
+        return true;
+    }
 }
