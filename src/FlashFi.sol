@@ -64,7 +64,7 @@ contract FlashFi {
         (bool success, ) = address(this).call(
             abi.encodeWithSelector(
                 _methods[address(bytes20(params[12:32]))], 
-                abi.encode(params, debt)
+                abi.encodePacked(params, debt)
             )
         );
 
