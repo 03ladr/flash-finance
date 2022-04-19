@@ -15,18 +15,18 @@ contract FlashFi {
     // Setting supported dexes
     constructor() {
         _methods[0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D] = bytes4(keccak256("univ2Router(bytes)"));
+        _methods[0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F] = bytes4(keccak256("univ2Router(bytes)"));
     }
 
     /* Initiate flash loan backed trade.
-
     Asset:
         Address of desired ERC20.
     Amount:
         uint256 denoting desired ERC20 quantity.
     Params:
         ABI encoded, variable length byte array containing trade parameters.
-            - First 32 bytes must be (padded) target dex address
-            - Remainder must be specific to router function parameters
+            * First 32 bytes must be (padded) target dex address
+            * Remainder must be specific to router function parameters
     */
     function flashTrade (
         address asset, 
@@ -66,11 +66,11 @@ contract FlashFi {
         uint256 debt = amount + premium;
 
         // Use address-specific method
-        require(address(bytes20(params[12:32])) != address(0), "Unsupported target dex address."); // Switch to _methods byte4 default check
+        require(_methods[address(bytes20(params[12:32]))] != bytes4(0x0), "Unsupported target dex address.");
         (bool success, ) = address(this).call(
             abi.encodeWithSelector(
                 _methods[address(bytes20(params[12:32]))], 
-                abi.encodePacked(params, debt)
+                params
             )
         );
 
@@ -81,7 +81,7 @@ contract FlashFi {
             1) Execute trade
             If successful: 
                 2) Reobtain debt 
-                    - Same token, same quantity
+                    * Same token, same quantity
                 3) Take 1% service fee of debt-deduced profit
             Else:
                 2) Revert transaction
@@ -95,32 +95,37 @@ contract FlashFi {
         bytes calldata params
     ) external returns (bool) {
         
-        // Decode execution parameters
-        (bytes memory trade_params, uint256 debt) = abi.decode(params, (bytes, uint256));
-
         // Decode trade parameters (currently placeholder)
-        (address target_dex, address asset, uint256 amountIn) = abi.decode(trade_params, (address, address, uint256));
+        (
+            address target_dex, 
+            uint256 amountIn,
+            uint256 amountOutMin,
+            address[] memory assets,
+            uint256 deadline
+        ) = abi.decode(params, (address, uint256, uint256, address[], uint256));
 
         // Obtaining asset decimal count
-        ( , bytes memory decimals) = asset.call(
+        (, bytes memory encoded_decimals) = assets[0].call(
             abi.encode(
                 "decimals()"
             )
         );
+        uint256 decimals = abi.decode(encoded_decimals, (uint256));
 
         // Calculate exponentiated amount in
-        uint256 exp_amountIn = amountIn * 10 ** abi.decode(decimals, (uint256));
-        
+        uint256 exp_amountIn = amountIn * 10 ** decimals;
+        uint256 exp_amountOutMin = amountOutMin * 10 ** decimals;
+
         // Pre-trade requisites
-        require(IERC20(asset).approve(target_dex, exp_amountIn), 'approve failed.');
+        require(IERC20(assets[0]).approve(target_dex, exp_amountIn), 'approve failed.');
     
         // Trade execution
-        // _univ2.call(
-        //     abi.encodeWithSignature(
-        //         "swapExactTokensForTokens(uint,uint,address[],address,uint)",
-        //         exp_amountIn, exp_amountOutMin, path, to, deadline
-        //     )
-        // );
+        (bool success, ) = target_dex.call(
+            abi.encodeWithSignature(
+                "swapExactTokensForTokens(uint,uint,address[],address,uint)",
+                exp_amountIn, exp_amountOutMin, assets, address(this), deadline
+            )
+        );
 
         // Return true denoting successful execution
         return true;
