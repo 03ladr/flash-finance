@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.10;
 
 import './deps/IERC20.sol';
@@ -10,7 +10,6 @@ contract FlashFi {
     address private _pool_provider = 0x24a42fD28C976A61Df5D00D0599C34c4f90748c8;
 
     // Storage variables
-    mapping(address => uint256) private _bals;
     mapping(address => bytes4) private _methods;
     
     // Setting supported dexes
@@ -18,7 +17,17 @@ contract FlashFi {
         _methods[0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D] = bytes4(keccak256("univ2Router(bytes)"));
     }
 
-    // Dispatch flash loan backed trade
+    /* Initiate flash loan backed trade.
+
+    Asset:
+        Address of desired ERC20.
+    Amount:
+        uint256 denoting desired ERC20 quantity.
+    Params:
+        ABI encoded, variable length byte array containing trade parameters.
+            - First 32 bytes must be (padded) target dex address
+            - Remainder must be specific to router function parameters
+    */
     function flashTrade (
         address asset, 
         uint256 amount, 
@@ -49,18 +58,15 @@ contract FlashFi {
         // address initiator,
         bytes calldata params
     ) external returns (bool) {
-
-        // Increment available balance for ERC20
-        _bals[asset] += amount;
         
         // Ensure balance consistency
-        require(IERC20(asset).balanceOf(address(this)) == _bals[asset], "balance error.");
+        require(IERC20(asset).balanceOf(address(this)) >= amount, "ERC20 balance error.");
         
         // Store transaction debt
         uint256 debt = amount + premium;
 
         // Use address-specific method
-        require(address(bytes20(params[12:32])) != address(0), "Unsupported target dex address.");
+        require(address(bytes20(params[12:32])) != address(0), "Unsupported target dex address."); // Switch to _methods byte4 default check
         (bool success, ) = address(this).call(
             abi.encodeWithSelector(
                 _methods[address(bytes20(params[12:32]))], 
@@ -68,19 +74,18 @@ contract FlashFi {
             )
         );
 
+        // Ensure trade completion
+        require(success, "Trade failed.");
+
         /* To-do:
             1) Execute trade
             If successful: 
-                2) Decrement _bals by amount
-                3) Reobtain debt 
+                2) Reobtain debt 
                     - Same token, same quantity
-                4) Take 1% service fee of debt-deduced profit
+                3) Take 1% service fee of debt-deduced profit
             Else:
                 2) Revert transaction
         */
-
-        // Decrement available balance for ERC20
-        _bals[asset] -= amount;
     
         // Return true denoting successful execution
         return true;
@@ -107,7 +112,6 @@ contract FlashFi {
         uint256 exp_amountIn = amountIn * 10 ** abi.decode(decimals, (uint256));
         
         // Pre-trade requisites
-        require(IERC20(asset).transferFrom(msg.sender, address(this), exp_amountIn), 'transferFrom failed.');
         require(IERC20(asset).approve(target_dex, exp_amountIn), 'approve failed.');
     
         // Trade execution
@@ -117,6 +121,12 @@ contract FlashFi {
         //         exp_amountIn, exp_amountOutMin, path, to, deadline
         //     )
         // );
+
+        // Return true denoting successful execution
+        return true;
+    }
+
+    function oneinchBuyBack() external pure returns (bool) {
 
         // Return true denoting successful execution
         return true;
